@@ -4,6 +4,9 @@ require 'rubygems'
 require 'mkmf'
 
 $defs << "-DPOLYPHONY_BACKEND_LIBEV"
+# rb_io_descriptor replaces direct access to rb_io_t#fd (deprecated since Ruby
+# 3.2, removed access via struct member discouraged as of Ruby 4.0).
+$defs << '-DHAVE_RB_IO_DESCRIPTOR' if have_func('rb_io_descriptor', 'ruby/io.h')
 $defs << '-DEV_USE_LINUXAIO'     if have_header('linux/aio_abi.h')
 $defs << '-DEV_USE_SELECT'       if have_header('sys/select.h')
 $defs << '-DEV_USE_POLL'         if have_type('port_event_t', 'poll.h')

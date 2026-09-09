@@ -215,14 +215,20 @@ VALUE Scheduler_io_wait(VALUE self, VALUE io, VALUE events, VALUE timeout) {
   struct libev_timer timeout_watcher;
   GetScheduler(self, scheduler);
 
-  rb_io_t *fptr;
   VALUE underlying_io = rb_ivar_get(io, ID_ivar_io);
   if (underlying_io != Qnil) io = underlying_io;
+
+#ifdef HAVE_RB_IO_DESCRIPTOR
+  int fd = rb_io_descriptor(io);
+#else
+  rb_io_t *fptr;
   GetOpenFile(io, fptr);
+  int fd = fptr->fd;
+#endif
 
   io_watcher.scheduler = scheduler;
   io_watcher.fiber = rb_fiber_current();
-  ev_io_init(&io_watcher.io, Scheduler_io_callback, fptr->fd, io_event_mask(events));
+  ev_io_init(&io_watcher.io, Scheduler_io_callback, fd, io_event_mask(events));
 
   int use_timeout = timeout != Qnil;
   if (use_timeout) {
