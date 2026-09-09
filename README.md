@@ -12,7 +12,7 @@
   </a>
 </p>
 
-`libev_scheduler` is a libev-based fiber scheduler for Ruby 3.0 based on code
+`libev_scheduler` is a libev-based fiber scheduler for based on code
 extracted from [Polyphony](https://github.com/digital-fabric/polyphony).
 
 ## Installing
@@ -37,7 +37,7 @@ Also have a look at the included tests and examples.
 
 The present gem uses
 [libev](http://pod.tst.eu/http://cvs.schmorp.de/libev/ev.pod) to provide a
-performant, cross-platform fiber scheduler implementation for Ruby 3.0. The
+performant, cross-platform fiber scheduler implementation for. The
 bundled libev is version 4.33, which includes an (experimental) io_uring
 backend.
 

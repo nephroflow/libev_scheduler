@@ -4,7 +4,7 @@ Gem::Specification.new do |s|
   s.name        = 'libev_scheduler'
   s.version     = Libev::VERSION
   s.licenses    = ['MIT']
-  s.summary     = 'Libev-based fiber scheduler for Ruby 3.0'
+  s.summary     = 'Libev-based fiber scheduler for Ruby'
   s.author      = 'Sharon Rosner'
   s.email       = 'sharon@noteflakes.com'
   s.files       = `git ls-files`.split
@@ -20,6 +20,6 @@ Gem::Specification.new do |s|
   s.require_paths = ['lib']
   s.required_ruby_version = '>= 3.0'
 
-  s.add_development_dependency 'rake-compiler',       '1.1.1'
-  s.add_development_dependency  'minitest',           '5.16.1'
+  s.add_development_dependency 'rake-compiler',       '~> 1.3'
+  s.add_development_dependency  'minitest',           '~> 6.0'
 end
