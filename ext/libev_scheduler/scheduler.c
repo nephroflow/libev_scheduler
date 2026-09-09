@@ -118,7 +118,12 @@ struct libev_timer {
   VALUE fiber;
 };
 
-#define SCHEDULE(scheduler, fiber) rb_ary_push((scheduler)->ready_fibers, fiber)
+// Ready fibers are stored as [fiber, resume_value] pairs, so a fiber can be
+// resumed either with a plain value (normal wakeup) or with an exception
+// (interruption), which is then re-raised by the blocking call that yielded.
+#define SCHEDULE(scheduler, fiber) SCHEDULE_VALUE((scheduler), (fiber), Qnil)
+#define SCHEDULE_VALUE(scheduler, fiber, value) \
+  rb_ary_push((scheduler)->ready_fibers, rb_ary_new_from_args(2, (fiber), (value)))
 
 void Scheduler_timer_callback(EV_P_ ev_timer *w, int revents) {
   struct libev_timer *watcher = (struct libev_timer *)w;
@@ -182,6 +187,24 @@ VALUE Scheduler_unblock(VALUE self, VALUE blocker, VALUE fiber) {
   GetScheduler(self, scheduler);
 
   SCHEDULE(scheduler, fiber);
+
+  if (scheduler->currently_polling)
+    ev_async_send(scheduler->ev_loop, &scheduler->break_async);
+
+  return self;
+}
+
+// Interrupts a fiber that is currently blocked in the scheduler (e.g. in
+// Scheduler_sleep, Scheduler_pause, Scheduler_io_wait or
+// Scheduler_process_wait), causing it to resume with the given exception
+// raised. This is the `fiber_interrupt` Fiber::Scheduler hook, required since
+// Ruby 4.0 for safely delivering interrupts (e.g. signals such as SIGINT) to
+// fibers blocked on scheduler-managed operations.
+VALUE Scheduler_fiber_interrupt(VALUE self, VALUE fiber, VALUE exception) {
+  Scheduler_t *scheduler;
+  GetScheduler(self, scheduler);
+
+  SCHEDULE_VALUE(scheduler, fiber, exception);
 
   if (scheduler->currently_polling)
     ev_async_send(scheduler->ev_loop, &scheduler->break_async);
@@ -298,8 +321,10 @@ void Scheduler_resume_ready(Scheduler_t *scheduler) {
     scheduler->ready_fibers = rb_ary_new();
 
     for (unsigned int i = 0; i < ready_count; i++) {
-      VALUE fiber = RARRAY_AREF(ready_fibers, i);
-      rb_fiber_resume(fiber, 1, &VALUE_nil);
+      VALUE entry = RARRAY_AREF(ready_fibers, i);
+      VALUE fiber = RARRAY_AREF(entry, 0);
+      VALUE value = RARRAY_AREF(entry, 1);
+      rb_fiber_resume(fiber, 1, &value);
     }
 
     ready_count = RARRAY_LEN(scheduler->ready_fibers);
@@ -343,6 +368,7 @@ void Init_Scheduler() {
   rb_define_method(cScheduler, "process_wait", Scheduler_process_wait, 2);
   rb_define_method(cScheduler, "block", Scheduler_block, -1);
   rb_define_method(cScheduler, "unblock", Scheduler_unblock, 2);
+  rb_define_method(cScheduler, "fiber_interrupt", Scheduler_fiber_interrupt, 2);
 
   rb_define_method(cScheduler, "run", Scheduler_run, 0);
   rb_define_method(cScheduler, "pending_count", Scheduler_pending_count, 0);
