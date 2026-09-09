@@ -3,7 +3,7 @@ require 'bundler/setup'
 require 'minitest/autorun'
 require 'libev_scheduler'
 
-class TestFiberMutex < MiniTest::Test
+class TestFiberMutex < Minitest::Test
   def test_mutex_synchronize
     mutex = Mutex.new
 

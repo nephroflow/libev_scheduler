@@ -3,7 +3,7 @@ require 'bundler/setup'
 require 'minitest/autorun'
 require 'libev_scheduler'
 
-class TestFiberProcess < MiniTest::Test
+class TestFiberProcess < Minitest::Test
   def test_process_wait
     Thread.new do
       scheduler = Libev::Scheduler.new

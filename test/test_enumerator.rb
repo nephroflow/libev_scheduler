@@ -3,7 +3,7 @@ require 'bundler/setup'
 require 'minitest/autorun'
 require 'libev_scheduler'
 
-class TestFiberEnumerator < MiniTest::Test
+class TestFiberEnumerator < Minitest::Test
   MESSAGE = "Hello World"
 
   def test_read_characters

@@ -3,7 +3,7 @@ require 'bundler/setup'
 require 'minitest/autorun'
 require 'libev_scheduler'
 
-class TestFiberSleep < MiniTest::Test
+class TestFiberSleep < Minitest::Test
   ITEMS = [0, 1, 2, 3, 4]
 
   def setup

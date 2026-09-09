@@ -3,7 +3,7 @@ require 'bundler/setup'
 require 'minitest/autorun'
 require 'libev_scheduler'
 
-class TestFiberIO < MiniTest::Test
+class TestFiberIO < Minitest::Test
   MESSAGE = "Hello World"
 
   def test_read
