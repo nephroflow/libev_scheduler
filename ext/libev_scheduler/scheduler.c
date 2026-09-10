@@ -38,6 +38,16 @@ typedef struct Scheduler_t {
   unsigned int pending_count;
   unsigned int currently_polling;
   VALUE ready_fibers;
+
+  // Tracks fibers currently blocked inside this scheduler (i.e. currently
+  // yielded from Scheduler_sleep, Scheduler_pause, Scheduler_io_wait or
+  // Scheduler_process_wait). This lets other code (e.g. a fiber-management
+  // library coexisting in the same thread) safely determine whether a given
+  // fiber's continuation is currently governed by this scheduler's
+  // resume/yield pairing, as opposed to some other mechanism (such as
+  // Fiber#transfer), before attempting to interrupt/terminate it -- see
+  // #blocking?.
+  VALUE blocked_fibers;
 } Scheduler_t;
 
 static size_t Scheduler_size(const void *ptr) {
@@ -47,6 +57,7 @@ static size_t Scheduler_size(const void *ptr) {
 static void Scheduler_mark(void *ptr) {
   Scheduler_t *scheduler = ptr;
   rb_gc_mark(scheduler->ready_fibers);
+  rb_gc_mark(scheduler->blocked_fibers);
 }
 
 static const rb_data_type_t Scheduler_type = {
@@ -94,8 +105,26 @@ static VALUE Scheduler_initialize(VALUE self) {
   scheduler->pending_count = 0;
   scheduler->currently_polling = 0;
   scheduler->ready_fibers = rb_ary_new();
+  scheduler->blocked_fibers = rb_hash_new();
 
   return Qnil;
+}
+
+#define MARK_BLOCKED(scheduler, fiber) rb_hash_aset((scheduler)->blocked_fibers, (fiber), Qtrue)
+#define UNMARK_BLOCKED(scheduler, fiber) rb_hash_delete((scheduler)->blocked_fibers, (fiber))
+
+// Returns true if the given fiber is currently blocked inside this scheduler
+// (i.e. currently yielded from #sleep, #pause, #io_wait or #process_wait),
+// meaning its continuation is governed by this scheduler's resume/yield
+// pairing. Other fiber-management code sharing the same thread can use this
+// to check, before attempting to terminate/interrupt a fiber via its own
+// mechanism, whether it should instead defer to this scheduler's
+// #fiber_interrupt to avoid corrupting the fiber's continuation state.
+VALUE Scheduler_blocking_p(VALUE self, VALUE fiber) {
+  Scheduler_t *scheduler;
+  GetScheduler(self, scheduler);
+
+  return rb_hash_lookup(scheduler->blocked_fibers, fiber) == Qtrue ? Qtrue : Qfalse;
 }
 
 VALUE Scheduler_poll(VALUE self);
@@ -157,7 +186,9 @@ VALUE Scheduler_sleep(VALUE self, VALUE duration) {
   ev_timer_init(&watcher.timer, Scheduler_timer_callback, NUM2DBL(duration), 0.);
   ev_timer_start(scheduler->ev_loop, &watcher.timer);
   scheduler->pending_count++;
+  MARK_BLOCKED(scheduler, watcher.fiber);
   VALUE ret = YIELD();
+  UNMARK_BLOCKED(scheduler, watcher.fiber);
   scheduler->pending_count--;
   ev_timer_stop(scheduler->ev_loop, &watcher.timer);
   if (!NIL_P(ret)) rb_exc_raise(ret);
@@ -168,11 +199,14 @@ VALUE Scheduler_sleep(VALUE self, VALUE duration) {
 
 VALUE Scheduler_pause(VALUE self) {
   Scheduler_t *scheduler;
+  VALUE fiber = rb_fiber_current();
   GetScheduler(self, scheduler);
 
   ev_ref(scheduler->ev_loop);
   scheduler->pending_count++;
+  MARK_BLOCKED(scheduler, fiber);
   VALUE ret = YIELD();
+  UNMARK_BLOCKED(scheduler, fiber);
   scheduler->pending_count--;
   ev_unref(scheduler->ev_loop);
   if (!NIL_P(ret)) rb_exc_raise(ret);
@@ -283,7 +317,9 @@ VALUE Scheduler_io_wait(VALUE self, VALUE io, VALUE events, VALUE timeout) {
 
   ev_io_start(scheduler->ev_loop, &io_watcher.io);
   scheduler->pending_count++;
+  MARK_BLOCKED(scheduler, io_watcher.fiber);
   VALUE ret = YIELD();
+  UNMARK_BLOCKED(scheduler, io_watcher.fiber);
   scheduler->pending_count--;
   ev_io_stop(scheduler->ev_loop, &io_watcher.io);
   if (use_timeout)
@@ -324,7 +360,9 @@ VALUE Scheduler_process_wait(VALUE self, VALUE pid, VALUE flags) {
   ev_child_init(&watcher.child, Scheduler_child_callback, NUM2INT(pid), 0);
   ev_child_start(scheduler->ev_loop, &watcher.child);
   scheduler->pending_count++;
+  MARK_BLOCKED(scheduler, watcher.fiber);
   rb_fiber_yield(1, &VALUE_nil);
+  UNMARK_BLOCKED(scheduler, watcher.fiber);
   scheduler->pending_count--;
   ev_child_stop(scheduler->ev_loop, &watcher.child);
   RB_GC_GUARD(watcher.status);
@@ -389,6 +427,7 @@ void Init_Scheduler() {
   rb_define_method(cScheduler, "block", Scheduler_block, -1);
   rb_define_method(cScheduler, "unblock", Scheduler_unblock, 2);
   rb_define_method(cScheduler, "fiber_interrupt", Scheduler_fiber_interrupt, 2);
+  rb_define_method(cScheduler, "blocking?", Scheduler_blocking_p, 1);
 
   rb_define_method(cScheduler, "run", Scheduler_run, 0);
   rb_define_method(cScheduler, "pending_count", Scheduler_pending_count, 0);
