@@ -118,9 +118,6 @@ struct libev_timer {
   VALUE fiber;
 };
 
-// Ready fibers are stored as [fiber, resume_value] pairs, so a fiber can be
-// resumed either with a plain value (normal wakeup) or with an exception
-// (interruption), which is then re-raised by the blocking call that yielded.
 #define SCHEDULE(scheduler, fiber) SCHEDULE_VALUE((scheduler), (fiber), Qnil)
 #define SCHEDULE_VALUE(scheduler, fiber, value) \
   rb_ary_push((scheduler)->ready_fibers, rb_ary_new_from_args(2, (fiber), (value)))
@@ -200,6 +197,19 @@ VALUE Scheduler_unblock(VALUE self, VALUE blocker, VALUE fiber) {
 // raised. This is the `fiber_interrupt` Fiber::Scheduler hook, required since
 // Ruby 4.0 for safely delivering interrupts (e.g. signals such as SIGINT) to
 // fibers blocked on scheduler-managed operations.
+//
+// This queues the interrupt exactly like a normal wakeup (via
+// SCHEDULE_VALUE), so it is delivered later by Scheduler_resume_ready via
+// rb_fiber_resume -- the *same* resume call that would otherwise wake this
+// fiber normally. This matters because these fibers are suspended via
+// rb_fiber_yield (a resume/yield-paired continuation, not a symmetric
+// transfer): calling Fiber#raise (or Fiber#transfer) directly on such a
+// fiber does not pair correctly with rb_fiber_yield and corrupts the
+// fiber's resume chain (its `prev` pointer), causing a subsequent, unrelated
+// Fiber.yield call within that same fiber to fail with "attempt to yield on
+// a not resumed fiber". Resuming with the exception as the resume value,
+// which Scheduler_sleep/Scheduler_pause explicitly detect and re-raise via
+// rb_exc_raise(ret), avoids this corruption entirely.
 VALUE Scheduler_fiber_interrupt(VALUE self, VALUE fiber, VALUE exception) {
   Scheduler_t *scheduler;
   GetScheduler(self, scheduler);
