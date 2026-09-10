@@ -71,11 +71,21 @@ void break_async_callback(struct ev_loop *ev_loop, struct ev_async *ev_async, in
 
 static VALUE Scheduler_initialize(VALUE self) {
   Scheduler_t *scheduler;
-  VALUE thread = rb_thread_current();
-  int is_main_thread = (thread == rb_thread_main());
 
   GetScheduler(self, scheduler);
-  scheduler->ev_loop = is_main_thread ? EV_DEFAULT : ev_loop_new(EVFLAG_NOSIGMASK);
+  // Always use a private event loop, even in the main thread. Using
+  // EV_DEFAULT (the process-wide default libev loop) would share it with
+  // any other library that also drives EV_DEFAULT in the main thread (e.g.
+  // Polyphony's own native backend, which uses EV_DEFAULT for its main
+  // thread as well). When two independent fiber-scheduling systems drive
+  // the same shared loop, whichever one calls ev_run first will
+  // synchronously fire the *other* system's due watchers too, resuming
+  // fibers it doesn't own via the wrong resume/transfer convention and
+  // corrupting their continuation state (manifesting as "attempt to
+  // yield/resume a(n) (not resumed|transferring) fiber" FiberErrors). A
+  // private loop guarantees this scheduler never processes -- or is
+  // interfered with by -- watchers belonging to another library.
+  scheduler->ev_loop = ev_loop_new(EVFLAG_NOSIGMASK);
 
   ev_async_init(&scheduler->break_async, break_async_callback);
   ev_async_start(scheduler->ev_loop, &scheduler->break_async);
